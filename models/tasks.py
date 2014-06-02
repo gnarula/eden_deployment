@@ -330,6 +330,33 @@ if settings.has_module("req"):
     tasks["req_add_from_template"] = req_add_from_template
 
 # -----------------------------------------------------------------------------
+if settings.has_module("setup"):
+
+    def deploy_locally(playbook, **kwargs):
+        import ansible.playbook, ansible.inventory
+        from ansible import callbacks
+        from ansible import utils
+
+        hosts = ["127.0.0.1"]
+
+        inventory = ansible.inventory.Inventory(hosts)
+        inventory.set_playbook_basedir(os.path.dirname(playbook))
+        playbook_cb = callbacks.PlaybookCallbacks(verbose=utils.VERBOSITY)
+        stats = callbacks.AggregateStats()
+        runner_cb = callbacks.PlaybookRunnerCallbacks(stats, verbose=utils.VERBOSITY)
+
+        pb = ansible.playbook.PlayBook(
+            playbook=playbook,
+            callbacks=playbook_cb,
+            runner_callbacks=runner_cb,
+            stats=stats
+        )
+
+        pb.run()
+
+    tasks["deploy_locally"] = deploy_locally
+
+# -----------------------------------------------------------------------------
 if settings.has_module("stats"):
     def stats_demographic_update_aggregates(records=None, user_id=None):
         """

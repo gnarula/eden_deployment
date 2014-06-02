@@ -652,7 +652,7 @@ def person():
     # CRUD pre-process
     def prep(r):
         if r.method in ("options", "validate"):
-            return True        
+            return True
         if r.interactive and r.method != "import":
             # Load default model to override CRUD Strings
             tablename = "pr_person"
@@ -844,7 +844,7 @@ def person():
             #(T("My Subscriptions"), "subscription"),
             (T("My Maps"), "config"),
             ]
-    
+
     output = s3_rest_controller("pr", "person",
                                 rheader = lambda r: \
                                     s3db.pr_rheader(r, tabs=tabs))
@@ -852,7 +852,7 @@ def person():
 
 # -----------------------------------------------------------------------------
 def group():
-    """ 
+    """
         RESTful CRUD controller
         - needed when group add form embedded in default/person
         - only create method is allowed, when opened in a inline form.
@@ -875,12 +875,12 @@ def group():
 
 # -----------------------------------------------------------------------------
 def skill():
-    """ 
+    """
         RESTful CRUD controller
         - needed when skill add form embedded in default/person
         - only create method is allowed, when opened in a inline form.
     """
-    
+
     # Check if it is called from a inline form
     if auth.permission.format != "popup":
         return ""
