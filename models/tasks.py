@@ -336,6 +336,7 @@ if settings.has_module("setup"):
         import ansible.playbook, ansible.inventory
         import os
         from ansible import callbacks
+        from ansible import errors
         from ansible import utils
 
         hosts = ["127.0.0.1"]
@@ -356,7 +357,11 @@ if settings.has_module("setup"):
             stats=stats
         )
 
-        pb.run()
+        try:
+            pb.run()
+        except errors.AnsibleError, e:
+            print e
+            return 1
 
     tasks["deploy_locally"] = deploy_locally
 
