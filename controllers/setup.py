@@ -56,6 +56,9 @@ def schedule_local(form):
         }
     ]
 
+    if form.vars.web_server == 'cherokee':
+        deployment[0]["roles"].insert(2, "uwsgi")
+
     directory = os.path.join(current.request.folder, "yaml")
     file_path = os.path.join(directory, "local.yml")
     with open(file_path, "w") as yaml_file:
@@ -68,7 +71,7 @@ def schedule_local(form):
         function_name="deploy_locally",
         repeats=1,
         timeout=3600,
-        sync_output=60
+        sync_output=300
     )
 
     form.vars["scheduler_id"] = row.id

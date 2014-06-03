@@ -334,6 +334,7 @@ if settings.has_module("setup"):
 
     def deploy_locally(playbook, **kwargs):
         import ansible.playbook, ansible.inventory
+        import os
         from ansible import callbacks
         from ansible import utils
 
@@ -345,8 +346,11 @@ if settings.has_module("setup"):
         stats = callbacks.AggregateStats()
         runner_cb = callbacks.PlaybookRunnerCallbacks(stats, verbose=utils.VERBOSITY)
 
+        print "Launching Ansible"
+
         pb = ansible.playbook.PlayBook(
             playbook=playbook,
+            inventory=inventory,
             callbacks=playbook_cb,
             runner_callbacks=runner_cb,
             stats=stats
