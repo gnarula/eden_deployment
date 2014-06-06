@@ -1,0 +1,3 @@
+[submodule "private/playbook"]
+	path = private/playbook
+	url = https://github.com/gnarula/eden_playbook
