@@ -332,40 +332,14 @@ if settings.has_module("req"):
 # -----------------------------------------------------------------------------
 if settings.has_module("setup"):
 
-    def deploy_locally(playbook, **kwargs):
-        import ansible.playbook, ansible.inventory
-        import os
-        from ansible import callbacks
-        from ansible import errors
-        from ansible import utils
+    def deploy_locally(playbook, user_id=None):
 
-        hosts = ["127.0.0.1"]
-
-        inventory = ansible.inventory.Inventory(hosts)
-        inventory.set_playbook_basedir(os.path.dirname(playbook))
-        playbook_cb = callbacks.PlaybookCallbacks(verbose=utils.VERBOSITY)
-        stats = callbacks.AggregateStats()
-        runner_cb = callbacks.PlaybookRunnerCallbacks(stats, verbose=utils.VERBOSITY)
-
-        print "Launching Ansible"
-
-        pb = ansible.playbook.PlayBook(
-            playbook=playbook,
-            inventory=inventory,
-            callbacks=playbook_cb,
-            runner_callbacks=runner_cb,
-            stats=stats
-        )
-
-        try:
-            pb.run()
-        except errors.AnsibleError, e:
-            print e
-            return 1
+        pb = s3db.setup_create_playbook(playbook, ["127.0.0.1"])
+        pb.run()
 
     tasks["deploy_locally"] = deploy_locally
 
-# -----------------------------------------------------------------------------
+# --------------------e--------------------------------------------------------
 if settings.has_module("stats"):
     def stats_demographic_update_aggregates(records=None, user_id=None):
         """
