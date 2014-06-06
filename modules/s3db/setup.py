@@ -148,7 +148,6 @@ def setup_create_yaml_file(host, password, web_server, database_type,
             "vars": {
                 "password": password,
                 "template": template,
-                "sitename": sitename,
             },
             "roles": [
                 "%scommon" % roles_path,
@@ -167,10 +166,14 @@ def setup_create_yaml_file(host, password, web_server, database_type,
 
     if not hostname:
         deployment[0]["vars"]["hostname"] = socket.gethostname()
+    else:
+        deployment[0]["vars"]["hostname"] = hostname
 
     if not sitename:
         deployment[0]["vars"]["sitename"] = \
             current.deployment_settings.get_base_public_url()
+    else:
+        deployment[0]["vars"]["sitename"] = sitename
 
     directory = os.path.join(current.request.folder, "yaml")
     name = "deployment_%d" % int(time.time())
