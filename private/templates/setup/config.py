@@ -19,7 +19,7 @@ settings.base.system_name = T("Sahana Eden Deployment")
 
 # -----------------------------------------------------------------------------
 # Theme (folder to use for views/layout.html)
-settings.base.theme = "setup"
+# settings.base.theme = "setup"
 
 # -----------------------------------------------------------------------------
 
