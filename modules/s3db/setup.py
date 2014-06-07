@@ -29,6 +29,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 __all__ = ["S3DeployModel",
            "setup_create_yaml_file",
            "setup_create_playbook",
+           "setup_log",
            ]
 
 from ..s3 import *
@@ -41,6 +42,10 @@ import os
 import socket
 import time
 import yaml
+
+
+TIME_FORMAT = "%b %d %Y %H:%M:%S"
+MSG_FORMAT = "%(now)s - %(category)s - %(data)s\n\n"
 
 
 class S3DeployModel(S3Model):
@@ -135,8 +140,8 @@ class S3DeployModel(S3Model):
 
 
 def setup_create_yaml_file(host, password, web_server, database_type,
-                     local=False, hostname=None,
-                     template="default", sitename=None):
+                           local=False, hostname=None,
+                           template="default", sitename=None):
 
     roles_path = "../private/playbook/roles/"
 
@@ -199,17 +204,115 @@ def setup_create_yaml_file(host, password, web_server, database_type,
 def setup_create_playbook(playbook, hosts):
 
     inventory = ansible.inventory.Inventory(hosts)
-    playbook_cb = callbacks.PlaybookCallbacks(verbose=utils.VERBOSITY)
+    #playbook_cb = callbacks.PlaybookCallbacks(verbose=utils.VERBOSITY)
     stats = callbacks.AggregateStats()
-    runner_cb = callbacks.PlaybookRunnerCallbacks(
-        stats, verbose=utils.VERBOSITY)
+    # runner_cb = callbacks.PlaybookRunnerCallbacks(
+    #     stats, verbose=utils.VERBOSITY)
+
+    head, tail = os.path.split(playbook)
+    deployment_name = tail.rsplit(".")[0]
+
+    cb = CallbackModule(deployment_name)
 
     pb = ansible.playbook.PlayBook(
         playbook=playbook,
         inventory=inventory,
-        callbacks=playbook_cb,
-        runner_callbacks=runner_cb,
+        callbacks=cb,
+        runner_callbacks=cb,
         stats=stats
     )
 
     return pb
+
+
+def setup_log(filename, category, data):
+    if type(data) == dict:
+        if 'verbose_override' in data:
+            # avoid logging extraneous data from facts
+            data = 'omitted'
+        else:
+            data = data.copy()
+            invocation = data.pop('invocation', None)
+            data = json.dumps(data)
+            if invocation is not None:
+                data = json.dumps(invocation) + " => %s " % data
+
+    path = os.path.join(current.request.folder, "yaml", "%s.log" % filename)
+    now = time.strftime(TIME_FORMAT, time.localtime())
+    fd = open(path, "a")
+    fd.write(MSG_FORMAT % dict(now=now, category=category, data=data))
+    fd.close()
+
+
+class CallbackModule(object):
+
+    """
+    logs playbook results, per deployment in eden/yaml
+    """
+    def __init__(self, filename):
+        self.filename = filename
+
+    def on_any(self, *args, **kwargs):
+        pass
+
+    def on_failed(self, host, res, ignore_errors=False):
+        setup_log(self.filename, 'FAILED', res)
+
+    def on_ok(self, host, res):
+        setup_log(self.filename, 'OK', res)
+
+    def on_error(self, host, msg):
+        setup_log(self.filename, 'ERROR', msg)
+
+    def on_skipped(self, host, item=None):
+        setup_log(self.filename, 'SKIPPED', '...')
+
+    def on_unreachable(self, host, res):
+        setup_log(self.filename, 'UNREACHABLE', res)
+
+    def on_no_hosts(self):
+        pass
+
+    def on_async_poll(self, host, res, jid, clock):
+        pass
+
+    def on_async_ok(self, host, res, jid):
+        pass
+
+    def on_async_failed(self, host, res, jid):
+        setup_log(self.filename, 'ASYNC_FAILED', res)
+
+    def on_start(self):
+        pass
+
+    def on_notify(self, host, handler):
+        pass
+
+    def on_no_hosts_matched(self):
+        pass
+
+    def on_no_hosts_remaining(self):
+        pass
+
+    def on_task_start(self, name, is_conditional):
+        pass
+
+    def on_vars_prompt(self, varname, private=True, prompt=None,
+                                encrypt=None, confirm=False, salt_size=None,
+                                salt=None, default=None):
+        pass
+
+    def on_setup(self):
+        pass
+
+    def on_import_for_host(self, host, imported_file):
+        setup_log(self.filename, 'IMPORTED', imported_file)
+
+    def on_not_import_for_host(self, host, missing_file):
+        setup_log(self.filename, 'NOTIMPORTED', missing_file)
+
+    def on_play_start(self, pattern):
+        pass
+
+    def on_stats(self, stats):
+        pass
