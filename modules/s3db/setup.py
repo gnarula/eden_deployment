@@ -149,7 +149,7 @@ def setup_create_yaml_file(host, password, web_server, database_type,
         {
             "hosts": host,
             "connection": "local",
-            "sudo": "yes",
+            "sudo": True,
             "vars": {
                 "password": password,
                 "template": template,
