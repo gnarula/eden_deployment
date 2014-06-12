@@ -153,6 +153,7 @@ def setup_create_yaml_file(host, password, web_server, database_type,
             "vars": {
                 "password": password,
                 "template": template,
+                "web_server": web_server
             },
             "roles": [
                 "%scommon" % roles_path,
