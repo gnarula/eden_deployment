@@ -71,6 +71,9 @@ def schedule_local(form):
         if row.scheduler_id.status == "COMPLETED":
             form.errors["host"] = "Local Deployment has been done previously"
             return
+        elif row.scheduler_id.status == "RUNNING":
+            form.errors["host"] = "Another Local Deployment is running. Please wait for it to complete"
+            return
 
     row = s3db.setup_create_yaml_file(
         "127.0.0.1",
