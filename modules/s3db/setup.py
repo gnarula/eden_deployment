@@ -40,6 +40,7 @@ from ansible import callbacks
 from ansible import utils
 import os
 import socket
+import shutil
 import time
 import yaml
 
@@ -63,6 +64,16 @@ class S3DeployModel(S3Model):
                           Field("host",
                                 label=T("Server IP"),
                                 required=True,
+                                ),
+                          Field("remote_user",
+                                label=T("Remote User"),
+                                required=True,
+                                ),
+                          Field("private_key", "upload",
+                                label=T("Private Key"),
+                                required=True,
+                                custom_store=store_file,
+                                custom_retrieve=retrieve_file,
                                 ),
                           Field("sitename",
                                 label=T("Site URL"),
@@ -141,14 +152,14 @@ class S3DeployModel(S3Model):
 
 def setup_create_yaml_file(host, password, web_server, database_type,
                            local=False, hostname=None,
-                           template="default", sitename=None):
+                           template="default", sitename=None,
+                           private_key=None, remote_user=None):
 
     roles_path = "../private/playbook/roles/"
 
     deployment = [
         {
             "hosts": host,
-            "connection": "local",
             "sudo": True,
             "vars": {
                 "password": password,
@@ -181,6 +192,9 @@ def setup_create_yaml_file(host, password, web_server, database_type,
     else:
         deployment[0]["vars"]["sitename"] = sitename
 
+    if remote_user:
+        deployment[0]["remote_user"] = remote_user
+
     directory = os.path.join(current.request.folder, "yaml")
     name = "deployment_%d" % int(time.time())
     file_path = os.path.join(directory, "%s.yml" % name)
@@ -192,8 +206,12 @@ def setup_create_yaml_file(host, password, web_server, database_type,
 
     row = current.s3task.schedule_task(
         name,
-        vars={"playbook": file_path},
-        function_name="deploy_locally",
+        vars = {
+            "playbook": file_path,
+            "private_key":private_key,
+            "host": [host],
+        },
+        function_name="deploy",
         repeats=1,
         timeout=3600,
         sync_output=300
@@ -202,7 +220,7 @@ def setup_create_yaml_file(host, password, web_server, database_type,
     return row
 
 
-def setup_create_playbook(playbook, hosts):
+def setup_create_playbook(playbook, hosts, private_key):
 
     inventory = ansible.inventory.Inventory(hosts)
     #playbook_cb = callbacks.PlaybookCallbacks(verbose=utils.VERBOSITY)
@@ -215,13 +233,24 @@ def setup_create_playbook(playbook, hosts):
 
     cb = CallbackModule(deployment_name)
 
-    pb = ansible.playbook.PlayBook(
-        playbook=playbook,
-        inventory=inventory,
-        callbacks=cb,
-        runner_callbacks=cb,
-        stats=stats
-    )
+    if private_key:
+        pb = ansible.playbook.PlayBook(
+            playbook=playbook,
+            inventory=inventory,
+            callbacks=cb,
+            runner_callbacks=cb,
+            stats=stats,
+            private_key_file=private_key,
+        )
+    else:
+        pb = ansible.playbook.PlayBook(
+            playbook=playbook,
+            inventory=inventory,
+            callbacks=cb,
+            runner_callbacks=cb,
+            stats=stats
+        )
+
 
     return pb
 
@@ -244,6 +273,22 @@ def setup_log(filename, category, data):
     fd.write(MSG_FORMAT % dict(now=now, category=category, data=data))
     fd.close()
 
+def store_file(file, filename=None, path=None):
+    path = "applications/eden/uploads"
+    if not os.path.exists(path):
+         os.makedirs(path)
+    pathfilename = os.path.join(path, filename)
+    dest_file = open(pathfilename, 'wb')
+    try:
+            shutil.copyfileobj(file, dest_file)
+    finally:
+            dest_file.close()
+            os.chmod(pathfilename, 0600)
+    return filename
+
+def retrieve_file(filename, path=None):
+    path = "applications/eden/uploads"
+    return (filename, open(os.path.join(path, filename), 'rb'))
 
 class CallbackModule(object):
 
@@ -275,28 +320,28 @@ class CallbackModule(object):
         pass
 
     def on_async_poll(self, host, res, jid, clock):
-        pass
+        setup_log(self.filename, 'DEBUG', host, res, jid, clock)
 
     def on_async_ok(self, host, res, jid):
-        pass
+        setup_log(self.filename, 'DEBUG', host, res, jid)
 
     def on_async_failed(self, host, res, jid):
         setup_log(self.filename, 'ASYNC_FAILED', res)
 
     def on_start(self):
-        pass
+        setup_log(self.filename, 'DEBUG', 'on_start')
 
     def on_notify(self, host, handler):
-        pass
+        setup_log(self.filename, 'DEBUG', host)
 
     def on_no_hosts_matched(self):
-        pass
+        setup_log(self.filename, 'DEBUG', 'no_hosts_matched')
 
     def on_no_hosts_remaining(self):
-        pass
+        setup_log(self.filename, 'DEBUG', 'no_hosts_remaining')
 
     def on_task_start(self, name, is_conditional):
-        pass
+        setup_log(self.filename, 'DEBUG', 'Starting %s' % name)
 
     def on_vars_prompt(self, varname, private=True, prompt=None,
                                 encrypt=None, confirm=False, salt_size=None,
@@ -304,7 +349,7 @@ class CallbackModule(object):
         pass
 
     def on_setup(self):
-        pass
+        setup_log(self.filename, 'DEBUG', 'on_setup')
 
     def on_import_for_host(self, host, imported_file):
         setup_log(self.filename, 'IMPORTED', imported_file)
@@ -313,7 +358,7 @@ class CallbackModule(object):
         setup_log(self.filename, 'NOTIMPORTED', missing_file)
 
     def on_play_start(self, pattern):
-        pass
+        setup_log(self.filename, 'play_start', pattern)
 
     def on_stats(self, stats):
-        pass
+        setup_log(self.filename, 'DEBUG', stats)
