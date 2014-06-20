@@ -126,6 +126,7 @@ def schedule_local(form):
 
     row = s3db.setup_create_yaml_file(
         "127.0.0.1",
+        form.vars.password,
         form.vars.web_server,
         form.vars.database_type,
         True,
