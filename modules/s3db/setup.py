@@ -274,7 +274,7 @@ def setup_log(filename, category, data):
     fd.close()
 
 def store_file(file, filename=None, path=None):
-    path = "applications/eden/uploads"
+    path = os.path.join(current.request.folder, "uploads")
     if not os.path.exists(path):
          os.makedirs(path)
     pathfilename = os.path.join(path, filename)
@@ -287,7 +287,7 @@ def store_file(file, filename=None, path=None):
     return filename
 
 def retrieve_file(filename, path=None):
-    path = "applications/eden/uploads"
+    path = os.path.join(current.request.folder, "uploads")
     return (filename, open(os.path.join(path, filename), 'rb'))
 
 class CallbackModule(object):
