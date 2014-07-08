@@ -65,6 +65,15 @@ class S3DeployModel(S3Model):
                                 label=T("Server IP"),
                                 required=True,
                                 ),
+                          Field("distro",
+                                label=T("Linux Distribution"),
+                                required=True,
+                                requires=IS_IN_SET(
+                                    [
+                                        ("wheezy", "Debian Wheezy"),
+                                        ("precise", "Ubuntu 14.04 LTS Precise"),
+                                    ])
+                                ),
                           Field("remote_user",
                                 label=T("Remote User"),
                                 required=True,
@@ -106,6 +115,11 @@ class S3DeployModel(S3Model):
                           Field("template",
                                 label=T("Template"),
                                 default="default",
+                                ),
+                          Field("prepop",
+                                label=T("Site Type"),
+                                required=True,
+                                requires=IS_IN_SET(["prod", "test", "demo"]),
                                 ),
                           Field("scheduler_id", "reference scheduler_task",
                                 writable=False,
@@ -151,9 +165,9 @@ class S3DeployModel(S3Model):
 
 
 def setup_create_yaml_file(host, password, web_server, database_type,
-                           local=False, hostname=None,
+                           prepop, distro, local=False, hostname=None,
                            template="default", sitename=None,
-                           private_key=None, remote_user=None):
+                           private_key=None, remote_user=None, **kwargs):
 
     roles_path = "../private/playbook/roles/"
 
@@ -164,7 +178,9 @@ def setup_create_yaml_file(host, password, web_server, database_type,
             "vars": {
                 "password": password,
                 "template": template,
-                "web_server": web_server
+                "web_server": web_server,
+                "type": prepop,
+                "distro": distro
             },
             "roles": [
                 "%scommon" % roles_path,
@@ -195,6 +211,17 @@ def setup_create_yaml_file(host, password, web_server, database_type,
     if remote_user:
         deployment[0]["remote_user"] = remote_user
 
+    if "demo_type" in kwargs:
+        deployment[0]["vars"]["dtype"] = kwargs["demo_type"]
+        if kwargs["demo_type"] == "afterprod":
+            only_tags = ["demo"]
+    elif prepop == "test":
+        only_tags = ["test",]
+        deployment[0]["vars"]["dtype"] = "na"
+    else:
+        only_tags = ["all"]
+        deployment[0]["vars"]["dtype"] = "na"
+
     directory = os.path.join(current.request.folder, "yaml")
     name = "deployment_%d" % int(time.time())
     file_path = os.path.join(directory, "%s.yml" % name)
@@ -210,6 +237,7 @@ def setup_create_yaml_file(host, password, web_server, database_type,
             "playbook": file_path,
             "private_key":private_key,
             "host": [host],
+            "only_tags": only_tags,
         },
         function_name="deploy",
         repeats=1,
@@ -220,7 +248,7 @@ def setup_create_yaml_file(host, password, web_server, database_type,
     return row
 
 
-def setup_create_playbook(playbook, hosts, private_key):
+def setup_create_playbook(playbook, hosts, private_key, only_tags):
 
     inventory = ansible.inventory.Inventory(hosts)
     #playbook_cb = callbacks.PlaybookCallbacks(verbose=utils.VERBOSITY)
@@ -241,6 +269,7 @@ def setup_create_playbook(playbook, hosts, private_key):
             runner_callbacks=cb,
             stats=stats,
             private_key_file=private_key,
+            only_tags=only_tags
         )
     else:
         pb = ansible.playbook.PlayBook(
@@ -248,7 +277,8 @@ def setup_create_playbook(playbook, hosts, private_key):
             inventory=inventory,
             callbacks=cb,
             runner_callbacks=cb,
-            stats=stats
+            stats=stats,
+            only_tags=only_tags
         )
 
 
