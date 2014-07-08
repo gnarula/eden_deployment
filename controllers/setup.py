@@ -116,23 +116,40 @@ def schedule_local(form):
     # Check if already deployed using coapp
     resource = s3db.resource("setup_deploy")
     rows = db(resource.table.type == "local").select()
+    prod = False
+
     for row in rows:
         if row.scheduler_id.status == "COMPLETED":
-            form.errors["host"] = "Local Deployment has been done previously"
-            return
-        elif row.scheduler_id.status == "RUNNING":
+            if row.prepop == form.vars.prepop:
+                form.errors["prepop"] = "%s site has been installed previously" % row.prepop
+                return
+            if row.prepop == "prod":
+                prod = True
+        elif row.scheduler_id.status == "RUNNING" or row.scheduler_id.status == "ASSIGNED":
             form.errors["host"] = "Another Local Deployment is running. Please wait for it to complete"
             return
+
+    if form.vars.prepop == "test" and not prod:
+        form.errors["prepop"] = "Production site must be installed before test"
+        return
+
+    if form.vars.prepop == "demo" and not prod:
+        demo_type = "beforeprod"
+    else:
+        demo_type = "afterprod"
 
     row = s3db.setup_create_yaml_file(
         "127.0.0.1",
         form.vars.password,
         form.vars.web_server,
         form.vars.database_type,
+        form.vars.prepop,
+        form.vars.distro,
         True,
         form.vars.hostname,
         form.vars.template,
         form.vars.sitename,
+        demo_type=demo_type
     )
 
     form.vars["scheduler_id"] = row.id
@@ -152,7 +169,7 @@ def schedule_remote(form):
         if row.scheduler_id.status == "COMPLETED":
             form.errors["host"] = "Deployment on this host has been done previously"
             return
-        elif row.scheduler_id.status == "RUNNING":
+        elif row.scheduler_id.status == "RUNNING" or row.scheduler_id.status == "ASSIGNED"
             form.errors["host"] = "Deployment on this host is running. Please wait for it to complete"
             return
 
@@ -162,6 +179,8 @@ def schedule_remote(form):
         form.vars.password,
         form.vars.web_server,
         form.vars.database_type,
+        form.vars.prepop,
+        form.vars.distro,
         False,
         form.vars.hostname,
         form.vars.template,

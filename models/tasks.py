@@ -332,9 +332,9 @@ if settings.has_module("req"):
 # -----------------------------------------------------------------------------
 if settings.has_module("setup"):
 
-    def deploy(playbook, private_key, host=["127.0.0.1"], user_id=None):
+    def deploy(playbook, private_key, host=["127.0.0.1"], only_tags="all", user_id=None):
 
-        pb = s3db.setup_create_playbook(playbook, host, private_key)
+        pb = s3db.setup_create_playbook(playbook, host, private_key, only_tags)
         pb.run()
 
     tasks["deploy"] = deploy
