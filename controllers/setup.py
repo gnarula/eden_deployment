@@ -42,11 +42,16 @@ def local_deploy():
         db.setup_deploy.private_key.readable = False
 
         resource.add_filter(query)
+
+        if r.method in ("create", None):
+            appname = request.application
+            s3.scripts.append("/%s/static/scripts/S3/s3.setup.js" % appname)
         return True
 
     s3.prep = prep
 
     def postp(r, output):
+        db.setup_deploy.prepop_options.requires = None
         if r.method == "read":
             record = r.record
             output["item"][0].append(TR(TD(LABEL("Status"), _class="w2p_fl")))
@@ -135,8 +140,10 @@ def schedule_local(form):
 
     if form.vars.prepop == "demo" and not prod:
         demo_type = "beforeprod"
-    else:
+    elif form.vars.prepop == "demo" and prod:
         demo_type = "afterprod"
+    else:
+        demo_type = None
 
     row = s3db.setup_create_yaml_file(
         "127.0.0.1",
@@ -144,6 +151,7 @@ def schedule_local(form):
         form.vars.web_server,
         form.vars.database_type,
         form.vars.prepop,
+        ','.join(form.vars.prepop_options),
         form.vars.distro,
         True,
         form.vars.hostname,
@@ -169,7 +177,7 @@ def schedule_remote(form):
         if row.scheduler_id.status == "COMPLETED":
             form.errors["host"] = "Deployment on this host has been done previously"
             return
-        elif row.scheduler_id.status == "RUNNING" or row.scheduler_id.status == "ASSIGNED"
+        elif row.scheduler_id.status == "RUNNING" or row.scheduler_id.status == "ASSIGNED":
             form.errors["host"] = "Deployment on this host is running. Please wait for it to complete"
             return
 
@@ -191,3 +199,17 @@ def schedule_remote(form):
 
     form.vars["scheduler_id"] = row.id
     form.vars["type"] = "remote"
+
+def prepop_setting():
+    if request.ajax == True:
+        template = request.post_vars.get("template")
+        module_name = "applications.eden_deployment.private.templates.%s.config" % template
+        __import__(module_name)
+        config = sys.modules[module_name]
+        prepopulate_options = config.settings.base.get("prepopulate_options")
+        if isinstance(prepopulate_options, dict):
+            if "mandatory" in prepopulate_options:
+                del prepopulate_options["mandatory"]
+            return json.dumps(prepopulate_options.keys())
+        else:
+            return json.dumps(["mandatory"])

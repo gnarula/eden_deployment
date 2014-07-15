@@ -29,6 +29,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 __all__ = ["S3DeployModel",
            "setup_create_yaml_file",
            "setup_create_playbook",
+           "setup_get_templates",
            "setup_log",
            ]
 
@@ -114,12 +115,17 @@ class S3DeployModel(S3Model):
                                 ),
                           Field("template",
                                 label=T("Template"),
-                                default="default",
+                                requires=IS_IN_SET(setup_get_templates(), zero=None),
                                 ),
                           Field("prepop",
                                 label=T("Site Type"),
                                 required=True,
                                 requires=IS_IN_SET(["prod", "test", "demo"]),
+                                ),
+                          Field("prepop_options",
+                                label="Prepop Options",
+                                required=True,
+                                requires=IS_IN_SET([], multiple=True),
                                 ),
                           Field("scheduler_id", "reference scheduler_task",
                                 writable=False,
@@ -165,9 +171,9 @@ class S3DeployModel(S3Model):
 
 
 def setup_create_yaml_file(host, password, web_server, database_type,
-                           prepop, distro, local=False, hostname=None,
-                           template="default", sitename=None,
-                           private_key=None, remote_user=None, **kwargs):
+                           prepop, prepop_options, distro, local=False,
+                           hostname=None, template="default", sitename=None,
+                           private_key=None, remote_user=None, demo_type=None):
 
     roles_path = "../private/playbook/roles/"
 
@@ -180,7 +186,8 @@ def setup_create_yaml_file(host, password, web_server, database_type,
                 "template": template,
                 "web_server": web_server,
                 "type": prepop,
-                "distro": distro
+                "distro": distro,
+                "prepop_options": prepop_options,
             },
             "roles": [
                 "%scommon" % roles_path,
@@ -211,9 +218,9 @@ def setup_create_yaml_file(host, password, web_server, database_type,
     if remote_user:
         deployment[0]["remote_user"] = remote_user
 
-    if "demo_type" in kwargs:
-        deployment[0]["vars"]["dtype"] = kwargs["demo_type"]
-        if kwargs["demo_type"] == "afterprod":
+    if demo_type:
+        deployment[0]["vars"]["dtype"] = demo_type
+        if demo_type == "afterprod":
             only_tags = ["demo"]
     elif prepop == "test":
         only_tags = ["test",]
@@ -302,6 +309,16 @@ def setup_log(filename, category, data):
     fd = open(path, "a")
     fd.write(MSG_FORMAT % dict(now=now, category=category, data=data))
     fd.close()
+
+def setup_get_templates():
+    path = os.path.join(current.request.folder, "private", "templates")
+    templates = set(
+                    os.path.basename(folder) for folder, subfolders, files in os.walk(path) \
+                        for file_ in files if file_ == 'config.py'
+                )
+
+    return templates
+
 
 def store_file(file, filename=None, path=None):
     path = os.path.join(current.request.folder, "uploads")
