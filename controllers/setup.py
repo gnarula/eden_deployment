@@ -88,11 +88,17 @@ def remote_deploy():
         resource = r.resource
         query = (db.setup_deploy.type == "remote")
         resource.add_filter(query)
+
+        if r.method in ("create", None):
+            appname = request.application
+            s3.scripts.append("/%s/static/scripts/S3/s3.setup.js" % appname)
+
         return True
 
     s3.prep = prep
 
     def postp(r, output):
+        db.setup_deploy.prepop_options.requires = None
         if r.method == "read":
             record = r.record
             output["item"][0].append(TR(TD(LABEL("Status"), _class="w2p_fl")))
@@ -173,13 +179,29 @@ def schedule_remote(form):
     # Check if already deployed using coapp
     resource = s3db.resource("setup_deploy")
     rows = db(resource.table.type == "remote" and resource.table.host == form.vars.host).select()
+    prod = False
+
     for row in rows:
         if row.scheduler_id.status == "COMPLETED":
-            form.errors["host"] = "Deployment on this host has been done previously"
-            return
+            if row.prepop == form.vars.prepop:
+                form.errors["prepop"] = "%s site has been installed previously" % row.prepop
+                return
+            if row.prepop == "prod":
+                prod = True
         elif row.scheduler_id.status == "RUNNING" or row.scheduler_id.status == "ASSIGNED":
-            form.errors["host"] = "Deployment on this host is running. Please wait for it to complete"
+            form.errors["host"] = "Another Local Deployment is running. Please wait for it to complete"
             return
+
+    if form.vars.prepop == "test" and not prod:
+        form.errors["prepop"] = "Production site must be installed before test"
+        return
+
+    if form.vars.prepop == "demo" and not prod:
+        demo_type = "beforeprod"
+    elif form.vars.prepop == "demo" and prod:
+        demo_type = "afterprod"
+    else:
+        demo_type = None
 
 
     row = s3db.setup_create_yaml_file(
@@ -188,6 +210,7 @@ def schedule_remote(form):
         form.vars.web_server,
         form.vars.database_type,
         form.vars.prepop,
+        ''.join(form.vars.prepop_options),
         form.vars.distro,
         False,
         form.vars.hostname,
@@ -195,6 +218,7 @@ def schedule_remote(form):
         form.vars.sitename,
         os.path.join(request.folder, "uploads", form.vars.private_key.filename),
         form.vars.remote_user,
+        demo_type=demo_type,
     )
 
     form.vars["scheduler_id"] = row.id
