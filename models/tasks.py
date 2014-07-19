@@ -337,6 +337,15 @@ if settings.has_module("setup"):
         pb = s3db.setup_create_playbook(playbook, host, private_key, only_tags)
         pb.run()
 
+        processed_hosts = sorted(pb.stats.processed.keys())
+
+        for h in processed_hosts:
+            t = pb.stats.summarize(h)
+            if t['failures'] > 0:
+                raise Exception("One of the tasks failed")
+            elif t['unreachable'] > 0:
+                raise Exception("Host unreachable")
+
     tasks["deploy"] = deploy
 
 # --------------------e--------------------------------------------------------
