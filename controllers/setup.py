@@ -20,13 +20,6 @@ def index():
 
 def local_deploy():
     s3db.configure("setup_deploy", onvalidation=schedule_local)
-    s3.actions = [
-        {
-            "label": str(current.T("View Status")),
-            "url": URL(c="setup", args=["[id]/read"]),
-            "_class": "action-btn",
-        },
-    ]
 
     def prep(r):
         resource = r.resource
@@ -70,19 +63,13 @@ def local_deploy():
     return s3_rest_controller("setup", "deploy",
                               populate=dict(host="127.0.0.1",
                                             sitename=current.deployment_settings.get_base_public_url()
-                                           )
+                                           ),
+                              rheader=s3db.setup_rheader
                              )
 
 
 def remote_deploy():
     s3db.configure("setup_deploy", onvalidation=schedule_remote)
-    s3.actions = [
-        {
-            "label": str(current.T("View Status")),
-            "url": URL(c="setup", args=["[id]/read"]),
-            "_class": "action-btn",
-        },
-    ]
 
     def prep(r):
         resource = r.resource
@@ -115,7 +102,7 @@ def remote_deploy():
 
     s3.postp = postp
 
-    return s3_rest_controller("setup", "deploy")
+    return s3_rest_controller("setup", "deploy", rheader=s3db.setup_rheader)
 
 def schedule_local(form):
     """
@@ -188,7 +175,7 @@ def schedule_remote(form):
                 return
             if row.prepop == "prod":
                 prod = True
-        elif row.scheduler_id.status == "RUNNING" or row.scheduler_id.status == "ASSIGNED":
+        elif row.scheduler_id.status in ("RUNNING", "ASSIGNED", "QUEUED"):
             form.errors["host"] = "Another Local Deployment is running. Please wait for it to complete"
             return
 
@@ -225,7 +212,7 @@ def schedule_remote(form):
     form.vars["type"] = "remote"
 
 def prepop_setting():
-    if request.ajax == True:
+    if request.ajax:
         template = request.post_vars.get("template")
         module_name = "applications.eden_deployment.private.templates.%s.config" % template
         __import__(module_name)
@@ -237,3 +224,28 @@ def prepop_setting():
             return json.dumps(prepopulate_options.keys())
         else:
             return json.dumps(["mandatory"])
+
+
+def refresh():
+
+    try:
+        id = request.args[0]
+    except:
+        current.session.error = T("Record Not Found")
+        redirect(URL(c="setup", f="index"))
+
+    result = s3db.setup_refresh(id)
+
+    if result["success"]:
+        current.session.flash = result["msg"]
+        redirect(URL(c="setup", f=result["f"], args=result["args"]))
+    else:
+        current.session.error = result["msg"]
+        redirect(URL(c="setup", f=result["f"], args=result["args"]))
+
+def upgrade_status():
+    if request.ajax:
+        _id = request.post_vars.get("id")
+        status = s3db.setup_upgrade_status(_id)
+        if status:
+            return json.dumps(status)
