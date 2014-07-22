@@ -1,22 +1,55 @@
 function update_prepop_list() {
-    data = {"template": $("#setup_deploy_template option:selected").text()};
+    data = {'template': $('#setup_deploy_template option:selected').text()};
     $.ajax({
         type: 'POST',
         url: S3.Ap.concat('/setup/prepop_setting'),
         data: data,
-        dataType: "json"
+        dataType: 'json'
     })
     .done(function(prepop_options) {
         $('#setup_deploy_prepop_options').html('');
         $.each(prepop_options, function(key, value) {
             $('#setup_deploy_prepop_options')
-                .append($("<option></option>")
-                .attr("value", "template:" + value)
+                .append($('<option></option>')
+                .attr('value', 'template:' + value)
                 .text(value));
             });
     });
 }
+
+function redirect_refresh() {
+    url = window.location.href
+    id = url.match('deploy\/([0-9]+)\/')[1]
+    window.location = S3.ap.concat('/setup/refresh/'+id)
+}
+
+function get_upgrade_status() {
+    url = window.location.href
+    id = url.match('deploy\/([0-9]+)\/')[1]
+
+    $.ajax({
+        type: 'POST',
+        url: S3.Ap.concat('/setup/upgrade_status'),
+        data: {'id': id},
+        dataType: 'json',
+    })
+    .done(function(msg) {
+        if(msg) {
+            S3.showAlert(msg, 'success')
+            window.setTimeout('redirect_refresh()', 5000);
+        }
+    });
+}
+
 $(document).ready(function() {
-    update_prepop_list();
-    $("#setup_deploy_template").change(update_prepop_list);
+    if($('#setup_deploy_template').length) {
+        update_prepop_list();
+        $('#setup_deploy_template').change(update_prepop_list);
+    }
+
+    if($('#rheader').length) {
+        if(!$('#upgrade-selected-action').length) {
+            setInterval(get_upgrade_status, 120000);
+        }
+    }
 });
