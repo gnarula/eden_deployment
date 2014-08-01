@@ -57,7 +57,13 @@ MSG_FORMAT = "%(now)s - %(category)s - %(data)s\n\n"
 
 class S3DeployModel(S3Model):
 
-    names = ["setup_deploy", "setup_packages", "setup_upgrade"]
+    names = ["setup_deployment",
+             "setup_server_role",
+             "setup_instance",
+             "setup_host",
+             "setup_packages",
+             "setup_upgrade"
+             ]
 
     def model(self):
 
@@ -66,13 +72,14 @@ class S3DeployModel(S3Model):
 
         define_table = self.define_table
         configure = self.configure
+        add_components = self.add_components
         set_method = self.set_method
 
-        tablename = "setup_deploy"
+        tablename = "setup_deployment"
 
         define_table(tablename,
-                     Field("host",
-                            label=T("Server IP"),
+                     Field("name",
+                            label=T("Name"),
                             required=True,
                             ),
                      Field("distro",
@@ -88,62 +95,49 @@ class S3DeployModel(S3Model):
                             label=T("Remote User"),
                             required=True,
                             ),
+                     Field("secret_key",
+                            label=T("AWS Secret Key"),
+                            required=True,
+                            ),
+                     Field("access_key",
+                            label=T("AWS Access Key"),
+                            required=True,
+                            ),
                      Field("private_key", "upload",
                             label=T("Private Key"),
                             required=True,
                             custom_store=store_file,
                             custom_retrieve=retrieve_file,
                             ),
-                     Field("sitename",
-                            label=T("Site URL"),
-                            required=True,
-                            ),
-                     Field("hostname",
-                            label="Hostname",
-                            required=True,
-                            ),
-                     Field("web_server",
+                     Field("webserver_type", "integer",
                             label=T("Web Server"),
                             required=True,
-                            requires=IS_IN_SET(["apache", "cherokee"]),
+                            requires=IS_IN_SET({1:"apache", 2:"cherokee"}),
                             ),
-                     Field("database_type",
+                     Field("db_type", "integer",
                             label=T("Database"),
                             required=True,
-                            requires=IS_IN_SET(["mysql", "postgresql"]),
+                            requires=IS_IN_SET({1:"mysql", 2: "postgresql"}),
                             ),
-                     Field("password", "password",
+                     Field("db_password", "password",
                             required=True,
                             readable=False,
                             label=T("Database Password"),
                             ),
-                     Field("repo",
+                     Field("repo_url",
                             label=T("Eden Repo git URL"),
                             # TODO: Add more advanced options
                             default="https://github.com/flavour/eden",
                             ),
                      Field("template",
                             label=T("Template"),
-                            requires=IS_IN_SET(setup_get_templates(), zero=None),
-                            ),
-                     Field("prepop",
-                            label=T("Site Type"),
                             required=True,
-                            requires=IS_IN_SET(["prod", "test", "demo"]),
+                            requires=IS_IN_SET(setup_get_templates(), zero=None),
                             ),
                      Field("prepop_options",
                             label="Prepop Options",
                             required=True,
                             requires=IS_IN_SET([], multiple=True),
-                            ),
-                     Field("scheduler_id", "reference scheduler_task",
-                            writable=False,
-                            unique=True
-                            ),
-                     Field("type",
-                            writable=False,
-                            readable=False,
-                            required=True,
                             ),
                      Field("refresh_lock", "integer",
                             writable=False,
@@ -179,6 +173,52 @@ class S3DeployModel(S3Model):
                   listadd=True
                   )
 
+        tablename = "setup_server_role"
+
+        define_table(tablename,
+                     Field("name", "integer",
+                           requires=IS_IN_SET({1: "all", 2: "db", 3: "eden", 4: "webserver"})
+                           ),
+                     Field("host_ip",
+                           required=True,
+                           ),
+                     Field("hostname",
+                            label="Hostname",
+                            required=True,
+                            ),
+                     )
+
+        tablename = "setup_instance"
+
+        define_table(tablename,
+                     Field("name", "integer",
+                           requires=IS_IN_SET({1: "prod", 2: "test", 3: "demo", 4: "dev"})
+                           ),
+                     Field("url",
+                           requires=IS_URL(),
+                           ),
+                     Field("scheduler_id", "reference scheduler_task"),
+                     )
+
+        tablename = "setup_host"
+
+        define_table(tablename,
+                     Field("deployment_id", "reference setup_deployment"),
+                     Field("role_id", "reference setup_server_role"),
+                     Field("instance_id", "reference setup_instance"),
+                     )
+
+        add_components("setup_deployment",
+                       setup_server_role={"link": "setup_host",
+                                          "joinby": "deployment_id",
+                                          "key": "role_id",
+                                          },
+                       setup_instance={"link": "setup_host",
+                                       "joinby": "deployment_id",
+                                       "key": "role_id",
+                                       },
+                       )
+
         tablename = "setup_packages"
 
         define_table(tablename,
@@ -196,7 +236,7 @@ class S3DeployModel(S3Model):
                            requires=IS_IN_SET(["os", "pip", "git"])
                            ),
                      Field("deployment",
-                           "reference setup_deploy",
+                           "reference setup_deployment",
                            ),
                     )
 
@@ -204,7 +244,7 @@ class S3DeployModel(S3Model):
 
         define_table(tablename,
                      Field("deployment",
-                           "reference setup_deploy"
+                           "reference setup_deployment"
                            ),
                      Field("scheduler",
                            "reference scheduler_task"

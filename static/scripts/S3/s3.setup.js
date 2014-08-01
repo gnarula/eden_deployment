@@ -1,5 +1,5 @@
 function update_prepop_list() {
-    data = {'template': $('#setup_deploy_template option:selected').text()};
+    data = {'template': $('#setup_deployment_template option:selected').text()};
     $.ajax({
         type: 'POST',
         url: S3.Ap.concat('/setup/prepop_setting'),
@@ -7,9 +7,9 @@ function update_prepop_list() {
         dataType: 'json'
     })
     .done(function(prepop_options) {
-        $('#setup_deploy_prepop_options').html('');
+        $('#setup_deployment_prepop_options').html('');
         $.each(prepop_options, function(key, value) {
-            $('#setup_deploy_prepop_options')
+            $('#setup_deployment_prepop_options')
                 .append($('<option></option>')
                 .attr('value', 'template:' + value)
                 .text(value));
@@ -42,9 +42,9 @@ function get_upgrade_status() {
 }
 
 $(document).ready(function() {
-    if($('#setup_deploy_template').length) {
+    if($('#setup_deployment_template').length) {
         update_prepop_list();
-        $('#setup_deploy_template').change(update_prepop_list);
+        $('#setup_deployment_template').change(update_prepop_list);
     }
 
     if($('#rheader').length) {

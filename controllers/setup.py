@@ -17,6 +17,52 @@ def index():
 
     return dict()
 
+def deployment():
+
+    from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineLink
+
+    crud_form = S3SQLCustomForm("name",
+                                "distro",
+                                "remote_user",
+                                "secret_key",
+                                "access_key",
+                                "private_key",
+                                "webserver_type",
+                                "db_type",
+                                "db_password",
+                                "db_type",
+                                "db_password",
+                                "repo_url",
+                                "template",
+                                "prepop_options",
+                                S3SQLInlineComponent("server_role",
+                                                     label=T("Server Role"),
+                                                     fields=["", "name",],
+                                                     ),
+                                S3SQLInlineComponent("instance",
+                                                     label=T("Instance Type"),
+                                                     fields=["", "name",],
+                                                     ),
+                                )
+
+
+    def prep(r):
+        print r.component
+        if r.method in ("create", None):
+            appname = request.application
+            s3.scripts.append("/%s/static/scripts/S3/s3.setup.js" % appname)
+
+        return True
+
+    def postp(r):
+        s3db.setup_deploy.prepop_option.requires = None
+
+    s3.prep = prep
+
+    s3db.configure("setup_deployment", crud_form=crud_form)
+
+    return s3_rest_controller()
+
 
 def local_deploy():
     s3db.configure("setup_deploy", onvalidation=schedule_local)
