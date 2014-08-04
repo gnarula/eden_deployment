@@ -35,13 +35,13 @@ def deployment():
                                 "repo_url",
                                 "template",
                                 "prepop_options",
-                                S3SQLInlineComponent("server_role",
+                                S3SQLInlineComponent("server",
                                                      label=T("Server Role"),
-                                                     fields=["", "name",],
+                                                     fields=[("", "role")],
                                                      ),
                                 S3SQLInlineComponent("instance",
                                                      label=T("Instance Type"),
-                                                     fields=["", "name",],
+                                                     fields=[("", "type")],
                                                      ),
                                 )
 

@@ -58,7 +58,7 @@ MSG_FORMAT = "%(now)s - %(category)s - %(data)s\n\n"
 class S3DeployModel(S3Model):
 
     names = ["setup_deployment",
-             "setup_server_role",
+             "setup_server",
              "setup_instance",
              "setup_host",
              "setup_packages",
@@ -134,11 +134,6 @@ class S3DeployModel(S3Model):
                             required=True,
                             requires=IS_IN_SET(setup_get_templates(), zero=None),
                             ),
-                     Field("prepop_options",
-                            label="Prepop Options",
-                            required=True,
-                            requires=IS_IN_SET([], multiple=True),
-                            ),
                      Field("refresh_lock", "integer",
                             writable=False,
                             readable=False,
@@ -173,10 +168,10 @@ class S3DeployModel(S3Model):
                   listadd=True
                   )
 
-        tablename = "setup_server_role"
+        tablename = "setup_server"
 
         define_table(tablename,
-                     Field("name", "integer",
+                     Field("role", "integer",
                            requires=IS_IN_SET({1: "all", 2: "db", 3: "eden", 4: "webserver"})
                            ),
                      Field("host_ip",
@@ -191,12 +186,17 @@ class S3DeployModel(S3Model):
         tablename = "setup_instance"
 
         define_table(tablename,
-                     Field("name", "integer",
+                     Field("type", "integer",
                            requires=IS_IN_SET({1: "prod", 2: "test", 3: "demo", 4: "dev"})
                            ),
                      Field("url",
                            requires=IS_URL(),
                            ),
+                     Field("prepop_options",
+                            label="Prepop Options",
+                            required=True,
+                            requires=IS_IN_SET([], multiple=True),
+                            ),
                      Field("scheduler_id", "reference scheduler_task"),
                      )
 
@@ -204,18 +204,18 @@ class S3DeployModel(S3Model):
 
         define_table(tablename,
                      Field("deployment_id", "reference setup_deployment"),
-                     Field("role_id", "reference setup_server_role"),
+                     Field("server_id", "reference setup_server"),
                      Field("instance_id", "reference setup_instance"),
                      )
 
         add_components("setup_deployment",
-                       setup_server_role={"link": "setup_host",
-                                          "joinby": "deployment_id",
-                                          "key": "role_id",
-                                          },
+                       setup_server={"link": "setup_host",
+                                     "joinby": "deployment_id",
+                                     "key": "server_id",
+                                     },
                        setup_instance={"link": "setup_host",
                                        "joinby": "deployment_id",
-                                       "key": "role_id",
+                                       "key": "instance_id",
                                        },
                        )
 
