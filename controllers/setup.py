@@ -21,6 +21,8 @@ def deployment():
 
     from s3.s3forms import S3SQLCustomForm, S3SQLInlineComponent, S3SQLInlineLink
 
+    #s3db.configure("setup_deployment", onvalidation=validate_deployment)
+
     crud_form = S3SQLCustomForm("name",
                                 "distro",
                                 "remote_user",
@@ -34,23 +36,24 @@ def deployment():
                                 "db_password",
                                 "repo_url",
                                 "template",
-                                "prepop_options",
                                 S3SQLInlineComponent("server",
                                                      label=T("Server Role"),
-                                                     fields=[("", "role")],
+                                                     fields=["role", "host_ip", "hostname"],
                                                      ),
                                 S3SQLInlineComponent("instance",
                                                      label=T("Instance Type"),
-                                                     fields=[("", "type")],
+                                                     fields=["type", "url", "prepop_options"],
+                                                     multiple=False,
                                                      ),
                                 )
 
 
     def prep(r):
-        print r.component
         if r.method in ("create", None):
             appname = request.application
             s3.scripts.append("/%s/static/scripts/S3/s3.setup.js" % appname)
+
+        current.s3db.setup_instance.requires = IS_IN_SET({1: "prod", 3: "demo"})
 
         return True
 
@@ -62,7 +65,6 @@ def deployment():
     s3db.configure("setup_deployment", crud_form=crud_form)
 
     return s3_rest_controller()
-
 
 def local_deploy():
     s3db.configure("setup_deploy", onvalidation=schedule_local)

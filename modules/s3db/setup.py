@@ -171,8 +171,9 @@ class S3DeployModel(S3Model):
         tablename = "setup_server"
 
         define_table(tablename,
+                     Field("deployment_id", "reference setup_deployment"),
                      Field("role", "integer",
-                           requires=IS_IN_SET({1: "all", 2: "db", 3: "eden", 4: "webserver"})
+                            requires=IS_IN_SET({1: "all", 2: "db", 3: "webserver", 4: "eden"})
                            ),
                      Field("host_ip",
                            required=True,
@@ -183,9 +184,14 @@ class S3DeployModel(S3Model):
                             ),
                      )
 
+        configure(tablename,
+                  onvalidation=server_validation
+                  )
+
         tablename = "setup_instance"
 
         define_table(tablename,
+                     Field("deployment_id", "reference setup_deployment"),
                      Field("type", "integer",
                            requires=IS_IN_SET({1: "prod", 2: "test", 3: "demo", 4: "dev"})
                            ),
@@ -200,23 +206,13 @@ class S3DeployModel(S3Model):
                      Field("scheduler_id", "reference scheduler_task"),
                      )
 
-        tablename = "setup_host"
-
-        define_table(tablename,
-                     Field("deployment_id", "reference setup_deployment"),
-                     Field("server_id", "reference setup_server"),
-                     Field("instance_id", "reference setup_instance"),
-                     )
+        configure(tablename,
+                  onaccept=instance_onaccept
+                  )
 
         add_components("setup_deployment",
-                       setup_server={"link": "setup_host",
-                                     "joinby": "deployment_id",
-                                     "key": "server_id",
-                                     },
-                       setup_instance={"link": "setup_host",
-                                       "joinby": "deployment_id",
-                                       "key": "instance_id",
-                                       },
+                       setup_server="deployment_id",
+                       setup_instance="deployment_id",
                        )
 
         tablename = "setup_packages"
@@ -264,65 +260,172 @@ class S3DeployModel(S3Model):
         """
         return dict()
 
+def server_validation(form):
 
-def setup_create_yaml_file(host, password, web_server, database_type,
+    ip = form.vars.host_ip
+    table = current.s3db.setup_server
+    db = current.db
+    query = table.host_ip == ip
+
+    rows = db(query).select()
+
+    if rows:
+        form.errors["host_ip"] = "Server already in use"
+
+def instance_onaccept(form):
+
+    vars = form.vars
+    s3db = current.s3db
+    db = current.db
+
+    stable = s3db.setup_server
+    query = (stable.deployment_id == vars.deployment_id)
+    rows = db(query).select(stable.role,
+                            stable.host_ip,
+                            stable.hostname,
+                            orderby=stable.role
+                            )
+
+    hosts = []
+    for row in rows:
+        hosts.append((row.role, row.host_ip))
+        if row.role == 1 or row.role == 4:
+            hostname = row.hostname
+
+    dtable = s3db.setup_deployment
+    query = (dtable.id == vars.deployment_id)
+    deployment = db(query).select().first()
+
+    if vars.type == 2:
+        demo_type = "na"
+    elif vars.type == 1 or vars.type == 3:
+        # find dtype
+        sctable = s3db.scheduler_task
+        itable = s3db.setup_instance
+        query = (itable.deployment_id == vars.deployment_id) & \
+                (sctable.status == "COMPLETED")
+        existing_instances = db(query).select(itable.type,
+                                              join=sctable.on(itable.scheduler_id == sctable.id)
+                                              )
+        if existing_instances:
+            demo_type = "afterprod"
+        else:
+            demo_type = "beforeprod"
+
+    webservers = ["apache", "cherokee"]
+    dbs = ["mysql", "postgresql"]
+    prepop = ["prod", "test", "demo"]
+    scheduler_id = setup_create_yaml_file(hosts,
+                                          deployment.db_password,
+                                          webservers[deployment.webserver_type - 1],
+                                          dbs[deployment.db_type - 1],
+                                          prepop[vars.type - 1],
+                                          vars.prepop_options,
+                                          deployment.distro,
+                                          False,
+                                          hostname,
+                                          deployment.template,
+                                          vars.url,
+                                          deployment.private_key,
+                                          deployment.remote_user,
+                                          demo_type,
+                                          )
+
+    form.vars.scheduler_id = scheduler_id
+
+def setup_create_yaml_file(hosts, password, web_server, database_type,
                            prepop, prepop_options, distro, local=False,
                            hostname=None, template="default", sitename=None,
                            private_key=None, remote_user=None, demo_type=None):
 
     roles_path = "../private/playbook/roles/"
 
-    deployment = [
-        {
-            "hosts": host,
-            "sudo": True,
-            "vars": {
-                "password": password,
-                "template": template,
-                "web_server": web_server,
-                "type": prepop,
-                "distro": distro,
-                "prepop_options": prepop_options,
+    if len(hosts) == 1:
+        deployment = [
+            {
+                "hosts": hosts[0][1],
+                "sudo": True,
+                "remote_user": remote_user,
+                "vars": {
+                    "password": password,
+                    "template": template,
+                    "web_server": web_server,
+                    "type": prepop,
+                    "distro": distro,
+                    "prepop_options": prepop_options,
+                    "sitename": sitename,
+                    "hostname": hostname,
+                    "dtype": demo_type,
+                    "eden_ip": hosts[0][1],
+                    "db_ip": hosts[0][1],
+                    "db_type": database_type
+                },
+                "roles": [
+                    "%s%s" % (roles_path, database_type),
+                    "%scommon" % roles_path,
+                    "%suwsgi" % roles_path,
+                    "%sconfigure" % roles_path,
+                    "%s%s" % (roles_path, web_server),
+                ]
+            }
+        ]
+    else:
+        deployment = [
+            {
+                "hosts": hosts[0][1],
+                "sudo": True,
+                "remote_user": remote_user,
+                "vars": {
+                    "distro": distro,
+                    "dtype": demo_type,
+                    "password": password,
+                    "type": prepop
+                },
+                "roles": [
+                    "%s%s" % (roles_path, database_type),
+                ]
             },
-            "roles": [
-                "%scommon" % roles_path,
-                "%s%s" % (roles_path, web_server),
-                "%s%s" % (roles_path, database_type),
-                "%sconfigure" % roles_path,
-            ]
-        }
-    ]
+            {
+                "hosts": hosts[2][1],
+                "sudo": True,
+                "remote_user": remote_user,
+                "vars": {
+                    "dtype": demo_type,
+                    "db_ip": hosts[0][1],
+                    "db_type": database_type,
+                    "hostname": hostname,
+                    "password": password,
+                    "prepop_options": prepop_options,
+                    "sitename": sitename,
+                    "template": template,
+                    "type": prepop,
+                    "web_server": web_server,
+                },
+                "roles": [
+                    "%scommon" % roles_path,
+                    "%suwsgi" % roles_path,
+                    "%sconfigure" % roles_path,
+                ]
+            },
+            {
+                "hosts": hosts[1][1],
+                "sudo": True,
+                "vars": {
+                    "eden_ip": hosts[2][1],
+                    "type": prepop
+                },
+                "roles": [
+                    "%s%s" % (roles_path, web_server),
+                ]
+            }
+        ]
 
-    if web_server == "cherokee":
-        deployment[0]["roles"].insert(2, "%suwsgi" % roles_path)
-
-    if local:
-        deployment[0]["connection"] = "local"
-
-    if not hostname:
-        deployment[0]["vars"]["hostname"] = socket.gethostname()
-    else:
-        deployment[0]["vars"]["hostname"] = hostname
-
-    if not sitename:
-        deployment[0]["vars"]["sitename"] = \
-            current.deployment_settings.get_base_public_url()
-    else:
-        deployment[0]["vars"]["sitename"] = sitename
-
-    if remote_user:
-        deployment[0]["remote_user"] = remote_user
-
-    if demo_type:
-        deployment[0]["vars"]["dtype"] = demo_type
-        if demo_type == "afterprod":
-            only_tags = ["demo"]
+    if demo_type == "afterprod":
+        only_tags = ["demo"]
     elif prepop == "test":
         only_tags = ["test",]
-        deployment[0]["vars"]["dtype"] = "na"
     else:
         only_tags = ["all"]
-        deployment[0]["vars"]["dtype"] = "na"
 
     directory = os.path.join(current.request.folder, "yaml")
     name = "deployment_%d" % int(time.time())
@@ -338,7 +441,7 @@ def setup_create_yaml_file(host, password, web_server, database_type,
         vars = {
             "playbook": file_path,
             "private_key":private_key,
-            "host": [host],
+            "hosts": [host[1] for host in hosts],
             "only_tags": only_tags,
         },
         function_name="deploy",
@@ -363,26 +466,15 @@ def setup_create_playbook(playbook, hosts, private_key, only_tags):
 
     cb = CallbackModule(deployment_name)
 
-    if private_key:
-        pb = ansible.playbook.PlayBook(
-            playbook=playbook,
-            inventory=inventory,
-            callbacks=cb,
-            runner_callbacks=cb,
-            stats=stats,
-            private_key_file=private_key,
-            only_tags=only_tags
-        )
-    else:
-        pb = ansible.playbook.PlayBook(
-            playbook=playbook,
-            inventory=inventory,
-            callbacks=cb,
-            runner_callbacks=cb,
-            stats=stats,
-            only_tags=only_tags
-        )
-
+    pb = ansible.playbook.PlayBook(
+        playbook=playbook,
+        inventory=inventory,
+        callbacks=cb,
+        runner_callbacks=cb,
+        stats=stats,
+        private_key_file=private_key,
+        only_tags=only_tags
+    )
 
     return pb
 
