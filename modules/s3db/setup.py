@@ -330,8 +330,10 @@ def instance_onaccept(form):
                                           deployment.remote_user,
                                           demo_type,
                                           )
-
-    form.vars.scheduler_id = scheduler_id
+    # add scheduler fk in current record
+    query = (itable.id == vars.id)
+    record = db(query).select().first()
+    record.update_record(scheduler_id=scheduler_id)
 
 def setup_create_yaml_file(hosts, password, web_server, database_type,
                            prepop, prepop_options, distro, local=False,
