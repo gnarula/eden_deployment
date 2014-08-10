@@ -30,6 +30,7 @@ __all__ = ["S3DeployModel",
            "setup_create_yaml_file",
            "setup_create_playbook",
            "setup_get_templates",
+           "setup_get_prepop_options",
            "setup_log",
            "setup_rheader",
            "setup_UpgradeMethod",
@@ -203,7 +204,10 @@ class S3DeployModel(S3Model):
                             required=True,
                             requires=IS_IN_SET([], multiple=True),
                             ),
-                     Field("scheduler_id", "reference scheduler_task"),
+                     Field("scheduler_id", "reference scheduler_task",
+                            writable=False,
+                            readable=False
+                            ),
                      )
 
         configure(tablename,
@@ -279,7 +283,12 @@ def instance_onaccept(form):
     db = current.db
 
     stable = s3db.setup_server
-    query = (stable.deployment_id == vars.deployment_id)
+    # get deployment id
+    itable = s3db.setup_instance
+    query = (itable.id == vars.id)
+    deployment_id = db(query).select(itable.deployment_id).first().deployment_id
+
+    query = (stable.deployment_id == deployment_id)
     rows = db(query).select(stable.role,
                             stable.host_ip,
                             stable.hostname,
@@ -292,21 +301,25 @@ def instance_onaccept(form):
         if row.role == 1 or row.role == 4:
             hostname = row.hostname
 
+
     dtable = s3db.setup_deployment
-    query = (dtable.id == vars.deployment_id)
+    query = (dtable.id == deployment_id)
     deployment = db(query).select().first()
 
-    if vars.type == 2:
+    prepop_options = str(','.join(vars.prepop_options))
+
+    instance_type = int(vars.type)
+    if instance_type  == 2:
         demo_type = "na"
-    elif vars.type == 1 or vars.type == 3:
+    elif instance_type == 1 or instance_type == 3:
         # find dtype
         sctable = s3db.scheduler_task
-        itable = s3db.setup_instance
-        query = (itable.deployment_id == vars.deployment_id) & \
+        query = (itable.deployment_id == deployment_id) & \
                 (sctable.status == "COMPLETED")
         existing_instances = db(query).select(itable.type,
                                               join=sctable.on(itable.scheduler_id == sctable.id)
                                               )
+
         if existing_instances:
             demo_type = "afterprod"
         else:
@@ -319,8 +332,8 @@ def instance_onaccept(form):
                                           deployment.db_password,
                                           webservers[deployment.webserver_type - 1],
                                           dbs[deployment.db_type - 1],
-                                          prepop[vars.type - 1],
-                                          vars.prepop_options,
+                                          prepop[instance_type - 1],
+                                          prepop_options,
                                           deployment.distro,
                                           False,
                                           hostname,
@@ -412,6 +425,7 @@ def setup_create_yaml_file(hosts, password, web_server, database_type,
             {
                 "hosts": hosts[1][1],
                 "sudo": True,
+                "remote_user": remote_user,
                 "vars": {
                     "eden_ip": hosts[2][1],
                     "type": prepop
@@ -442,8 +456,8 @@ def setup_create_yaml_file(hosts, password, web_server, database_type,
         name,
         vars = {
             "playbook": file_path,
-            "private_key":private_key,
-            "hosts": [host[1] for host in hosts],
+            "private_key": os.path.join(current.request.folder, "uploads", private_key),
+            "host": [host[1] for host in hosts],
             "only_tags": only_tags,
         },
         function_name="deploy",
@@ -480,6 +494,17 @@ def setup_create_playbook(playbook, hosts, private_key, only_tags):
 
     return pb
 
+def setup_get_prepop_options(template):
+    module_name = "applications.eden_deployment.private.templates.%s.config" % template
+    __import__(module_name)
+    config = sys.modules[module_name]
+    prepopulate_options = config.settings.base.get("prepopulate_options")
+    if isinstance(prepopulate_options, dict):
+        if "mandatory" in prepopulate_options:
+            del prepopulate_options["mandatory"]
+        return prepopulate_options.keys()
+    else:
+        return ["mandatory"]
 
 def setup_log(filename, category, data):
     if type(data) == dict:
@@ -603,31 +628,17 @@ def setup_rheader(r, tabs=[]):
     """ Resource component page header """
 
     if r.representation == "html":
-        if r.record is None or r.record.scheduler_id.status != "COMPLETED":
-            return None
 
         T = current.T
-        s3db = current.s3db
 
         tabs = [(T("Deployment Details"), None),
-                (T("OS/Package Upgrade"), "upgrade"),
+                (T("Servers"), "server"),
+                (T("Instances"), "instance"),
                 ]
 
-        url = URL(c="setup", f="refresh", args=r.id)
-        button = S3CRUD.crud_button(T("Refresh List"),
-                                    _href=url,
-                                    _class="action-btn",
-                                    )
-
         rheader_tabs = s3_rheader_tabs(r, tabs)
-        last_refreshed = DIV(
-                            SPAN("Last package refresh on %s" % r.record.last_refreshed,
-                                 _id="modified_on"
-                                 ),
-                            _id="last_update"
-                            )
 
-        rheader = DIV(button, last_refreshed, rheader_tabs)
+        rheader = DIV(rheader_tabs)
 
         return rheader
 

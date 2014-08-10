@@ -7,9 +7,9 @@ function update_prepop_list() {
         dataType: 'json'
     })
     .done(function(prepop_options) {
-        $('#setup_deployment_prepop_options').html('');
+        $('#sub_defaultinstance_defaultinstance_i_prepop_options_edit_none').html('');
         $.each(prepop_options, function(key, value) {
-            $('#setup_deployment_prepop_options')
+            $('#sub_defaultinstance_defaultinstance_i_prepop_options_edit_none')
                 .append($('<option></option>')
                 .attr('value', 'template:' + value)
                 .text(value));

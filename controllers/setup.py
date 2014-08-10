@@ -43,6 +43,9 @@ def deployment():
                                 S3SQLInlineComponent("instance",
                                                      label=T("Instance Type"),
                                                      fields=["type", "url", "prepop_options"],
+                                                     #filterby=dict(field = "type",
+                                                                   #options = ["prod", "demo"]
+                                                                   #),
                                                      multiple=False,
                                                      ),
                                 )
@@ -53,18 +56,81 @@ def deployment():
             appname = request.application
             s3.scripts.append("/%s/static/scripts/S3/s3.setup.js" % appname)
 
-        current.s3db.setup_instance.requires = IS_IN_SET({1: "prod", 3: "demo"})
+        if r.interactive:
+            if r.component and r.id:
+
+                # set up the prepop options according to the template
+                prepop_options = s3db.setup_get_prepop_options(r.record.template)
+                db.setup_instance.prepop_options.requires = IS_IN_SET(prepop_options, multiple=True)
+
+                # no new servers once deployment is created
+                s3db.configure("setup_server",
+                               insertable=False
+                               )
+
+                # check if no scheduler task is pending
+                itable = db.setup_instance
+                sctable = db.scheduler_task
+                query = (itable.deployment_id == r.id) & \
+                        ((sctable.status != "COMPLETED") & \
+                        (sctable.status  != "FAILED"))
+
+                rows = db(query).select(join=itable.on(itable.scheduler_id == sctable.id))
+
+                if rows:
+                    # disable creation of new instances
+                    s3db.configure("setup_instance",
+                                   insertable=False
+                                   )
+                elif r.component.name == "instance":
+                    # remove deployed instances from drop down
+                    itable = db.setup_instance
+                    sctable = db.scheduler_task
+                    query = (itable.deployment_id == r.id) & \
+                            (sctable.status == "COMPLETED")
+
+                    rows = db(query).select(itable.type,
+                                            join=itable.on(itable.scheduler_id == sctable.id)
+                                            )
+                    types = {1: "prod", 2: "test", 3: "demo", 4: "dev"}
+                    for row in rows:
+                        del types[row.type]
+
+                    itable.type.requires = IS_IN_SET(types)
 
         return True
 
-    def postp(r):
-        s3db.setup_deploy.prepop_option.requires = None
-
     s3.prep = prep
+
+    def postp(r, output):
+        if r.method == "read":
+            # get scheduler status for the last queued task
+            itable = db.setup_instance
+            sctable = db.scheduler_task
+
+            query = (db.setup_instance.deployment_id == r.id)
+            row = db(query).select(sctable.id,
+                                    sctable.status,
+                                    join=itable.on(itable.scheduler_id==sctable.id),
+                                    orderby=itable.scheduler_id
+                                    ).last()
+
+            output["item"][0].append(TR(TD(LABEL("Status"), _class="w2p_fl")))
+            output["item"][0].append(TR(TD(row.status)))
+            if row.status == "FAILED":
+                resource = s3db.resource("scheduler_run")
+                task = db(resource.table.task_id == row.id).select().first()
+                output["item"][0].append(TR(TD(LABEL("Traceback"), _class="w2p_fl")))
+                output["item"][0].append(TR(TD(task.traceback)))
+                output["item"][0].append(TR(TD(LABEL("Output"), _class="w2p_fl")))
+                output["item"][0].append(TR(TD(task.run_output)))
+        return output
+
+    s3.postp = postp
 
     s3db.configure("setup_deployment", crud_form=crud_form)
 
-    return s3_rest_controller()
+    return s3_rest_controller(rheader=s3db.setup_rheader)
 
 def local_deploy():
     s3db.configure("setup_deploy", onvalidation=schedule_local)
@@ -262,17 +328,7 @@ def schedule_remote(form):
 def prepop_setting():
     if request.ajax:
         template = request.post_vars.get("template")
-        module_name = "applications.eden_deployment.private.templates.%s.config" % template
-        __import__(module_name)
-        config = sys.modules[module_name]
-        prepopulate_options = config.settings.base.get("prepopulate_options")
-        if isinstance(prepopulate_options, dict):
-            if "mandatory" in prepopulate_options:
-                del prepopulate_options["mandatory"]
-            return json.dumps(prepopulate_options.keys())
-        else:
-            return json.dumps(["mandatory"])
-
+        return json.dumps(s3db.setup_get_prepop_options(template))
 
 def refresh():
 
