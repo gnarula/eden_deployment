@@ -83,48 +83,76 @@ def deployment():
                                    insertable=False
                                    )
                 elif r.component.name == "instance":
-                    # remove deployed instances from drop down
-                    itable = db.setup_instance
-                    sctable = db.scheduler_task
-                    query = (itable.deployment_id == r.id) & \
-                            (sctable.status == "COMPLETED")
+                    if r.method in (None, "create"):
+                        # remove deployed instances from drop down
+                        itable = db.setup_instance
+                        sctable = db.scheduler_task
+                        query = (itable.deployment_id == r.id) & \
+                                (sctable.status == "COMPLETED")
 
-                    rows = db(query).select(itable.type,
-                                            join=itable.on(itable.scheduler_id == sctable.id)
-                                            )
-                    types = {1: "prod", 2: "test", 3: "demo", 4: "dev"}
-                    for row in rows:
-                        del types[row.type]
+                        rows = db(query).select(itable.type,
+                                                join=itable.on(itable.scheduler_id == sctable.id)
+                                                )
+                        types = {1: "prod", 2: "test", 3: "demo", 4: "dev"}
+                        for row in rows:
+                            del types[row.type]
 
-                    itable.type.requires = IS_IN_SET(types)
+                        itable.type.requires = IS_IN_SET(types)
 
         return True
 
     s3.prep = prep
 
     def postp(r, output):
-        if r.method == "read":
-            # get scheduler status for the last queued task
-            itable = db.setup_instance
-            sctable = db.scheduler_task
+        if r.component is None:
+            if r.method in (None, "read") and r.id:
+                # get scheduler status for the last queued task
+                itable = db.setup_instance
+                sctable = db.scheduler_task
 
-            query = (db.setup_instance.deployment_id == r.id)
-            row = db(query).select(sctable.id,
-                                    sctable.status,
-                                    join=itable.on(itable.scheduler_id==sctable.id),
-                                    orderby=itable.scheduler_id
-                                    ).last()
+                query = (db.setup_instance.deployment_id == r.id)
+                row = db(query).select(sctable.id,
+                                        sctable.status,
+                                        join=itable.on(itable.scheduler_id==sctable.id),
+                                        orderby=itable.scheduler_id
+                                        ).last()
+                output["item"][0].append(TR(TD(LABEL("Status"), _class="w2p_fl")))
+                output["item"][0].append(TR(TD(row.status)))
+                if row.status == "FAILED":
+                    resource = s3db.resource("scheduler_run")
+                    task = db(resource.table.task_id == row.id).select().first()
+                    output["item"][0].append(TR(TD(LABEL("Traceback"), _class="w2p_fl")))
+                    output["item"][0].append(TR(TD(task.traceback)))
+                    output["item"][0].append(TR(TD(LABEL("Output"), _class="w2p_fl")))
+                    output["item"][0].append(TR(TD(task.run_output)))
 
-            output["item"][0].append(TR(TD(LABEL("Status"), _class="w2p_fl")))
-            output["item"][0].append(TR(TD(row.status)))
-            if row.status == "FAILED":
-                resource = s3db.resource("scheduler_run")
-                task = db(resource.table.task_id == row.id).select().first()
-                output["item"][0].append(TR(TD(LABEL("Traceback"), _class="w2p_fl")))
-                output["item"][0].append(TR(TD(task.traceback)))
-                output["item"][0].append(TR(TD(LABEL("Output"), _class="w2p_fl")))
-                output["item"][0].append(TR(TD(task.run_output)))
+        elif r.component.name == "instance":
+            if r.method in (None, "read"):
+                s3.actions = []
+                s3.actions.extend([{"url": URL(c=module,
+                                              f="management",
+                                              vars={"instance": "[id]",
+                                                    "type": "clean",
+                                                    "deployment": r.id,
+                                                    }
+                                              ),
+                                   "_class": "action-btn",
+                                   "label": "Clean"
+                                   },
+                                   {"url": URL(c=module,
+                                               f="management",
+                                               vars={"instance": "[id]",
+                                                     "type": "eden",
+                                                     "deployment": r.id
+                                                     }
+                                               ),
+                                    "_class": "action-btn",
+                                    "label": "Upgrade Eden"
+                                    },]
+                                   )
+
         return output
+
 
     s3.postp = postp
 
@@ -132,198 +160,46 @@ def deployment():
 
     return s3_rest_controller(rheader=s3db.setup_rheader)
 
-def local_deploy():
-    s3db.configure("setup_deploy", onvalidation=schedule_local)
+def management():
+    try:
+        _id = request.vars["instance"]
+        deployment_id = request.vars["deployment"]
+        _type = request.vars["type"]
+    except:
+        current.session.error = T("Record Not Found")
+        redirect(URL(c="setup", f="index"))
 
-    def prep(r):
-        resource = r.resource
-        query = (db.setup_deploy.type == "local")
+    db = current.db
+    s3db = current.s3db
 
-        # make some fields optional
-        db.setup_deploy.remote_user.required = False
-        db.setup_deploy.remote_user.writable = False
-        db.setup_deploy.remote_user.readable = False
+    # Check if management task already running
+    exists = s3db.setup_management_exists(_type, _id, deployment_id)
 
-        db.setup_deploy.private_key.required = False
-        db.setup_deploy.private_key.writable = False
-        db.setup_deploy.private_key.readable = False
+    if exists:
+        current.session.error = T("A management task is running for the instance")
+        redirect(URL(c="setup", f="deployment", args=[deployment_id, "instance"]))
 
-        resource.add_filter(query)
+    # Check if instance was successfully deployed
+    ttable = s3db.scheduler_task
+    itable = s3db.setup_instance
+    query = (ttable.status == "COMPLETED") & \
+            (itable.id == _id)
+    success = db(query).select(itable.id,
+                               join=ttable.on(ttable.id == itable.scheduler_id),
+                               limitby=(0,1)).first()
 
-        if r.method in ("create", None):
-            appname = request.application
-            s3.scripts.append("/%s/static/scripts/S3/s3.setup.js" % appname)
-        return True
-
-    s3.prep = prep
-
-    def postp(r, output):
-        db.setup_deploy.prepop_options.requires = None
-        if r.method == "read":
-            record = r.record
-            output["item"][0].append(TR(TD(LABEL("Status"), _class="w2p_fl")))
-            output["item"][0].append(TR(TD(record.scheduler_id.status)))
-            if record.scheduler_id.status == "FAILED":
-                resource = s3db.resource("scheduler_run")
-                row = db(resource.table.task_id == record.scheduler_id).select().first()
-                output["item"][0].append(TR(TD(LABEL("Traceback"), _class="w2p_fl")))
-                output["item"][0].append(TR(TD(row.traceback)))
-                output["item"][0].append(TR(TD(LABEL("Output"), _class="w2p_fl")))
-                output["item"][0].append(TR(TD(row.run_output)))
-        return output
-
-    s3.postp = postp
-
-    return s3_rest_controller("setup", "deploy",
-                              populate=dict(host="127.0.0.1",
-                                            sitename=current.deployment_settings.get_base_public_url()
-                                           ),
-                              rheader=s3db.setup_rheader
-                             )
-
-
-def remote_deploy():
-    s3db.configure("setup_deploy", onvalidation=schedule_remote)
-
-    def prep(r):
-        resource = r.resource
-        query = (db.setup_deploy.type == "remote")
-        resource.add_filter(query)
-
-        if r.method in ("create", None):
-            appname = request.application
-            s3.scripts.append("/%s/static/scripts/S3/s3.setup.js" % appname)
-
-        return True
-
-    s3.prep = prep
-
-    def postp(r, output):
-        db.setup_deploy.prepop_options.requires = None
-        if r.method == "read":
-            record = r.record
-            output["item"][0].append(TR(TD(LABEL("Status"), _class="w2p_fl")))
-            output["item"][0].append(TR(TD(record.scheduler_id.status)))
-            if record.scheduler_id.status == "FAILED":
-                resource = s3db.resource("scheduler_run")
-                row = db(resource.table.task_id == record.scheduler_id).select().first()
-                output["item"][0].append(TR(TD(LABEL("Traceback"), _class="w2p_fl")))
-                output["item"][0].append(TR(TD(row.traceback)))
-                output["item"][0].append(TR(TD(LABEL("Output"), _class="w2p_fl")))
-                output["item"][0].append(TR(TD(row.run_output)))
-
-        return output
-
-    s3.postp = postp
-
-    return s3_rest_controller("setup", "deploy", rheader=s3db.setup_rheader)
-
-def schedule_local(form):
-    """
-    Schedule a deployment using s3task.
-    """
-
-    # ToDo: support repo
-
-    # Check if already deployed using coapp
-    resource = s3db.resource("setup_deploy")
-    rows = db(resource.table.type == "local").select()
-    prod = False
-
-    for row in rows:
-        if row.scheduler_id.status == "COMPLETED":
-            if row.prepop == form.vars.prepop:
-                form.errors["prepop"] = "%s site has been installed previously" % row.prepop
-                return
-            if row.prepop == "prod":
-                prod = True
-        elif row.scheduler_id.status == "RUNNING" or row.scheduler_id.status == "ASSIGNED":
-            form.errors["host"] = "Another Local Deployment is running. Please wait for it to complete"
-            return
-
-    if form.vars.prepop == "test" and not prod:
-        form.errors["prepop"] = "Production site must be installed before test"
-        return
-
-    if form.vars.prepop == "demo" and not prod:
-        demo_type = "beforeprod"
-    elif form.vars.prepop == "demo" and prod:
-        demo_type = "afterprod"
+    if success:
+        # add the task to scheduler
+        current.s3task.schedule_task("setup_management",
+                                     args = [_type, _id, deployment_id],
+                                     timeout = 3600,
+                                     repeats = 1,
+                                     )
+        current.session.flash = T("Task queued in scheduler")
+        redirect(URL(c="setup", f="deployment", args=[deployment_id, "instance"]))
     else:
-        demo_type = None
-
-    row = s3db.setup_create_yaml_file(
-        "127.0.0.1",
-        form.vars.password,
-        form.vars.web_server,
-        form.vars.database_type,
-        form.vars.prepop,
-        ','.join(form.vars.prepop_options),
-        form.vars.distro,
-        True,
-        form.vars.hostname,
-        form.vars.template,
-        form.vars.sitename,
-        demo_type=demo_type
-    )
-
-    form.vars["scheduler_id"] = row.id
-    form.vars["type"] = "local"
-
-def schedule_remote(form):
-    """
-    Schedule a deployment using s3task.
-    """
-
-    # ToDo: support repo
-
-    # Check if already deployed using coapp
-    resource = s3db.resource("setup_deploy")
-    rows = db(resource.table.type == "remote" and resource.table.host == form.vars.host).select()
-    prod = False
-
-    for row in rows:
-        if row.scheduler_id.status == "COMPLETED":
-            if row.prepop == form.vars.prepop:
-                form.errors["prepop"] = "%s site has been installed previously" % row.prepop
-                return
-            if row.prepop == "prod":
-                prod = True
-        elif row.scheduler_id.status in ("RUNNING", "ASSIGNED", "QUEUED"):
-            form.errors["host"] = "Another Local Deployment is running. Please wait for it to complete"
-            return
-
-    if form.vars.prepop == "test" and not prod:
-        form.errors["prepop"] = "Production site must be installed before test"
-        return
-
-    if form.vars.prepop == "demo" and not prod:
-        demo_type = "beforeprod"
-    elif form.vars.prepop == "demo" and prod:
-        demo_type = "afterprod"
-    else:
-        demo_type = None
-
-
-    row = s3db.setup_create_yaml_file(
-        form.vars.host,
-        form.vars.password,
-        form.vars.web_server,
-        form.vars.database_type,
-        form.vars.prepop,
-        ''.join(form.vars.prepop_options),
-        form.vars.distro,
-        False,
-        form.vars.hostname,
-        form.vars.template,
-        form.vars.sitename,
-        os.path.join(request.folder, "uploads", form.vars.private_key.filename),
-        form.vars.remote_user,
-        demo_type=demo_type,
-    )
-
-    form.vars["scheduler_id"] = row.id
-    form.vars["type"] = "remote"
+        current.session.error = T("The instance was not successfully deployed")
+        redirect(URL(c="setup", f="deployment", args=[deployment_id, "instance"]))
 
 def prepop_setting():
     if request.ajax:

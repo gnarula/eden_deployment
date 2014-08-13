@@ -46,10 +46,4 @@ $(document).ready(function() {
         update_prepop_list();
         $('#setup_deployment_template').change(update_prepop_list);
     }
-
-    if($('#rheader').length) {
-        if(!$('#upgrade-selected-action').length) {
-            setInterval(get_upgrade_status, 120000);
-        }
-    }
 });

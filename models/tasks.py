@@ -348,6 +348,95 @@ if settings.has_module("setup"):
 
     tasks["deploy"] = deploy
 
+    def setup_management(_type, instance_id, deployment_id, user_id=None):
+        import ansible.runner
+        s3db = current.s3db
+        db = current.db
+        if _type == "clean":
+            # get all servers associated
+            stable = s3db.setup_server
+            query = (stable.deployment_id == deployment_id)
+            servers = db(query).select(stable.role,
+                                       stable.host_ip,
+                                       orderby=stable.role
+                                       )
+
+            # get deployment
+
+            dtable = s3db.setup_deployment
+            query = (dtable.id == deployment_id)
+            deployment = db(query).select(dtable.private_key,
+                                          dtable.remote_user,
+                                          limitby=(0,1)).first()
+            private_key = os.path.join(current.request.folder, "uploads", deployment.private_key)
+
+            hosts = [server.host_ip for server in servers]
+            inventory = ansible.inventory.Inventory(hosts)
+
+            tasks = []
+            runner = ansible.runner.Runner
+
+            itable = s3db.setup_instance
+            query = (itable.id == instance_id)
+            instance = db(query).select(itable.type, limitby=(0,1)).first()
+            instance_types = ["prod", "test", "demo"]
+
+            arguments = [dict(module_name = "service",
+                              module_args={"name": "uwsgi",
+                                           "status": "stop",
+                                           },
+                              remote_user=deployment.remote_user,
+                              private_key_file=private_key,
+                              pattern=servers[0].host_ip,
+                              inventory=inventory,
+                              sudo=True
+                              ),
+                          dict(module_name = "command",
+                              module_args="clean %s" % instance_types[instance.type - 1],
+                              remote_user=deployment.remote_user,
+                              private_key_file=private_key,
+                              pattern=servers[0].host_ip,
+                              inventory=inventory,
+                              sudo=True
+                              ),
+                          dict(module_name = "command",
+                              module_args="clean_eden %s" % instance_types[instance.type - 1],
+                              remote_user=deployment.remote_user,
+                              private_key_file=private_key,
+                              pattern=servers[0].host_ip,
+                              inventory=inventory,
+                              sudo=True
+                              ),
+                          dict(module_name = "service",
+                              module_args={"name": "uwsgi",
+                                           "status": "start",
+                                           },
+                              remote_user=deployment.remote_user,
+                              private_key_file=private_key,
+                              pattern=servers[0].host_ip,
+                              inventory=inventory,
+                              sudo=True
+                              ),
+                          ]
+
+            if len(servers) > 1:
+                arguments[0]["pattern"] = servers[2].host_ip
+                arguments[2]["pattern"] = servers[2].host_ip
+                arguments[3]["pattern"] = servers[2].host_ip
+
+            for argument in arguments:
+                tasks.append(runner(**argument))
+
+            # run the tasks
+            for task in tasks:
+                response = task.run()
+                if response["dark"]:
+                    raise Exception("Error contacting the server")
+
+                print response
+
+    tasks["setup_management"] = setup_management
+
 # --------------------e--------------------------------------------------------
 if settings.has_module("stats"):
     def stats_demographic_update_aggregates(records=None, user_id=None):

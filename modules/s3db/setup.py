@@ -33,6 +33,7 @@ __all__ = ["S3DeployModel",
            "setup_get_prepop_options",
            "setup_log",
            "setup_rheader",
+           "setup_management_exists",
            "setup_UpgradeMethod",
            "setup_refresh",
            "setup_getupgrades",
@@ -211,7 +212,9 @@ class S3DeployModel(S3Model):
                      )
 
         configure(tablename,
-                  onaccept=instance_onaccept
+                  onaccept=instance_onaccept,
+                  deletable=False,
+                  editable=False
                   )
 
         add_components("setup_deployment",
@@ -641,6 +644,25 @@ def setup_rheader(r, tabs=[]):
         rheader = DIV(rheader_tabs)
 
         return rheader
+
+def setup_management_exists(_type, _id, deployment_id):
+    """ Returns true/false depending on whether a management task
+        exists for an instance
+    """
+
+    db = current.db
+    ttable = current.s3db.scheduler_task
+    args = '["%s", "%s", "%s"]' % (_type, _id, deployment_id)
+    query = ((ttable.function_name == "setup_management") & \
+             (ttable.args == args) & \
+             (ttable.status.belongs(["RUNNING", "QUEUED", "ASSIGNED"])))
+    exists = db(query).select(ttable.id,
+                              limitby=(0,1)).first()
+
+    if exists:
+        return True
+
+    return False
 
 class setup_UpgradeMethod(S3Method):
 
