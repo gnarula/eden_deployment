@@ -352,34 +352,36 @@ if settings.has_module("setup"):
         import ansible.runner
         s3db = current.s3db
         db = current.db
+
+        # get all servers associated
+        stable = s3db.setup_server
+        query = (stable.deployment_id == deployment_id)
+        servers = db(query).select(stable.role,
+                                    stable.host_ip,
+                                    orderby=stable.role
+                                    )
+
+        # get deployment
+
+        dtable = s3db.setup_deployment
+        query = (dtable.id == deployment_id)
+        deployment = db(query).select(dtable.private_key,
+                                        dtable.remote_user,
+                                        limitby=(0,1)).first()
+        private_key = os.path.join(current.request.folder, "uploads", deployment.private_key)
+
+        hosts = [server.host_ip for server in servers]
+        inventory = ansible.inventory.Inventory(hosts)
+
+        tasks = []
+        runner = ansible.runner.Runner
+
+        itable = s3db.setup_instance
+        query = (itable.id == instance_id)
+        instance = db(query).select(itable.type, limitby=(0,1)).first()
+        instance_types = ["prod", "test", "demo"]
+
         if _type == "clean":
-            # get all servers associated
-            stable = s3db.setup_server
-            query = (stable.deployment_id == deployment_id)
-            servers = db(query).select(stable.role,
-                                       stable.host_ip,
-                                       orderby=stable.role
-                                       )
-
-            # get deployment
-
-            dtable = s3db.setup_deployment
-            query = (dtable.id == deployment_id)
-            deployment = db(query).select(dtable.private_key,
-                                          dtable.remote_user,
-                                          limitby=(0,1)).first()
-            private_key = os.path.join(current.request.folder, "uploads", deployment.private_key)
-
-            hosts = [server.host_ip for server in servers]
-            inventory = ansible.inventory.Inventory(hosts)
-
-            tasks = []
-            runner = ansible.runner.Runner
-
-            itable = s3db.setup_instance
-            query = (itable.id == instance_id)
-            instance = db(query).select(itable.type, limitby=(0,1)).first()
-            instance_types = ["prod", "test", "demo"]
 
             arguments = [dict(module_name = "service",
                               module_args={"name": "uwsgi",
@@ -433,7 +435,23 @@ if settings.has_module("setup"):
                 if response["dark"]:
                     raise Exception("Error contacting the server")
 
-                print response
+        elif _type == "eden":
+            argument = dict(module_name="command",
+                            module_args="pull %s" % [instance_types[instance.type - 1]],
+                            remote_user=deployment.remote_user,
+                            private_key_file=private_key,
+                            pattern=servers[0].host_ip,
+                            inventory=inventory,
+                            sudo=True
+                            )
+
+            if len(servers) > 1:
+                argument["pattern"] = servers[2].host_ip
+
+            task = runner(**argument)
+            response = task.run()
+            if response["dark"]:
+                raise Exception("Error contacting the server")
 
     tasks["setup_management"] = setup_management
 
